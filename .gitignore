@@ -1,0 +1,16 @@
+# 运行产物
+data/
+output/
+logs/
+__pycache__/
+*.pyc
+.venv/
+.idea/
+
+# 密钥 / 环境变量
+.env
+.env.*
+
+# 说明：源码里不含明文密钥。数据库 data/app.db 存各站点真实配置，已被 data/ 排除。
+# 部署 Render 时只需在 Environment 配置两个：TAVILY_API_KEY / OPENROUTER_API_KEY。
+# 各站的 WordPress 应用密码在网页「站点配置」里填，不进环境变量。

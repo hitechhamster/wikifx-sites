@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row" style="margin-bottom:20px">
+  <h1 style="margin:0;font-size:22px">全部站点</h1>
+  <span class="spacer"></span>
+  <a href="/sites/new" class="btn">+ 新建站点</a>
+</div>
+
+{% if not sites %}
+<div class="card">
+  <p class="muted">还没有站点。点右上角「新建站点」创建第一个,填入 WordPress 地址、API Key 等配置。</p>
+</div>
+{% else %}
+<div class="grid">
+  {% for s in sites %}
+  <div class="card" style="margin:0">
+    <div class="row">
+      <h2 style="margin:0">{{ s.name }}</h2>
+      <span class="spacer"></span>
+      <span class="tag">{{ s.language }}</span>
+    </div>
+    <p class="muted" style="margin:8px 0">
+      {{ s.wp_url or "未配置 WordPress" }}<br>
+      发布模式: {{ "直接发布" if s.publish_status == "publish" else "草稿" }} · 每次 {{ s.daily_limit }} 篇
+    </p>
+    <a href="/sites/{{ s.id }}" class="btn small">进入管理</a>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

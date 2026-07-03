@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} · 站群内容生产{% endblock %}
+{% block content %}
+
+<div class="row" style="margin-bottom:20px">
+  <h1>{{ site.name }}</h1>
+  <span class="tag">{{ site.language }}</span>
+  <span class="pill {{ 'done' if site.publish_status == 'publish' else 'skipped' }}">
+    {{ "直接发布" if site.publish_status == "publish" else "草稿模式" }}
+  </span>
+  <span class="spacer"></span>
+  <form method="post" action="/sites/{{ site.id }}/delete" onsubmit="return confirm('确定删除这个站点及其所有任务?')">
+    <button class="btn danger small">删除站点</button>
+  </form>
+</div>
+
+{% if request.query_params.get('saved') %}<div class="banner ok">已保存</div>{% endif %}
+{% if request.query_params.get('added') %}<div class="banner ok">已导入 {{ request.query_params.get('added') }} 条任务</div>{% endif %}
+{% if request.query_params.get('inserted') %}<div class="banner ok">已插入任务到队列</div>{% endif %}
+{% if request.query_params.get('running') %}<div class="banner ok">任务已插入并开始生成，见上方进度</div>{% endif %}
+{% if request.query_params.get('err') %}<div class="banner err">主关键词不能为空 / 没解析到有效行</div>{% endif %}
+
+<!-- ============ 运行 & 进度（各模式共用）============ -->
+<div class="card">
+  <h2>运行 & 进度</h2>
+  <p class="sub">排定模式按队列批量跑；插入模式跑你临时插入的那条。日志实时刷新。</p>
+  <div class="row" style="margin-bottom:14px">
+    <div class="stat"><b id="c-pending">{{ counts.pending }}</b><span>待处理</span></div>
+    <div class="stat"><b id="c-done" style="color:var(--ok)">{{ counts.done }}</b><span>已完成</span></div>
+    <div class="stat"><b id="c-error" style="color:var(--err)">{{ counts.error }}</b><span>失败</span></div>
+    <div class="stat"><b>{{ counts.total }}</b><span>总计</span></div>
+    <span class="spacer"></span>
+    <label class="muted">本次条数
+      <input type="number" id="limit" value="{{ site.daily_limit }}" style="width:78px;margin-left:6px">
+    </label>
+    <button class="btn ok" id="btn-run" onclick="runNow()">开始批量生成</button>
+    <button class="btn danger" id="btn-stop" onclick="stopNow()" style="display:none">停止</button>
+  </div>
+  <div class="row muted" id="jobline" style="margin-bottom:8px;font-size:13px"></div>
+  <div id="logbox">尚未运行。</div>
+</div>
+
+<!-- ============ 运行记录 ============ -->
+<div class="card">
+  <h2>运行记录</h2>
+  <p class="sub">每次运行的汇总;点「查看日志」在上方日志框里回看完整日志。</p>
+  {% if runs %}
+  <table>
+    <thead><tr><th>开始时间</th><th>模式</th><th>成功/失败/总</th><th>花费</th><th>状态</th><th></th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="muted">{{ r.started_at }}</td>
+        <td class="muted">{{ '插入' if r.mode == 'insert' else '排定' }}</td>
+        <td>{{ r.ok }} / {{ r.failed }} / {{ r.total }}</td>
+        <td class="muted">${{ '%.4f'|format(r.cost or 0) }}</td>
+        <td><span class="pill {{ 'done' if r.status == 'done' else 'skipped' }}">{{ '完成' if r.status == 'done' else ('已停止' if r.status == 'stopped' else r.status) }}</span></td>
+        <td><button class="btn secondary small" onclick="viewRun({{ r.id }})">查看日志</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">还没有运行记录。</p>
+  {% endif %}
+</div>
+
+<!-- ============ 模式切换 ============ -->
+<div class="tabs">
+  <button class="tab" data-mode="scheduled" onclick="switchMode('scheduled')">排定任务</button>
+  <button class="tab" data-mode="insert" onclick="switchMode('insert')">插入任务</button>
+  <button class="tab" data-mode="prompt" onclick="switchMode('prompt')">Prompt 模板</button>
+  <button class="tab" data-mode="config" onclick="switchMode('config')">站点配置</button>
+</div>
+
+<!-- ---------- 排定任务模式 ---------- -->
+<div class="mode-panel" id="panel-scheduled">
+  <div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <div>
+        <h2 style="margin:0">排定任务队列</h2>
+        <p class="sub" style="margin:2px 0 0">上传 Excel 批量排期；可导出当前队列备份，或导入到别的站。</p>
+      </div>
+      <span class="spacer"></span>
+      <a href="/template.xlsx" class="btn secondary small">下载模板</a>
+      <a href="/sites/{{ site.id }}/export" class="btn secondary small">导出 Excel</a>
+      <form method="post" action="/sites/{{ site.id }}/upload" enctype="multipart/form-data" class="row" style="gap:8px">
+        <input type="file" name="file" accept=".xlsx,.xls" required style="font-size:12px;max-width:190px">
+        <button class="btn small">导入 Excel</button>
+      </form>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:4px">
+      Excel 列(表头):<b>main_keyword</b>(必填)、secondary_keyword、topic、wordcounts、specific、category、tags
+    </p>
+
+    <!-- 过滤 + 计数 -->
+    <div class="row" style="gap:6px;margin:8px 0 10px">
+      {% for val, lbl in [('all','全部'),('pending','待处理'),('done','已完成'),('error','失败')] %}
+      <a href="?mode=scheduled&kw_status={{ val }}&kw_page=1"
+         class="btn small {{ '' if kw_status == val else 'secondary' }}">{{ lbl }}</a>
+      {% endfor %}
+      <span class="spacer"></span>
+      <span class="muted" style="font-size:12px">共 {{ kw_total }} 条 · 第 {{ kw_page }}/{{ kw_pages }} 页</span>
+    </div>
+
+    {% if keywords %}
+    <div style="max-height:540px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+    <table>
+      <thead><tr>
+        <th>#</th><th>主关键词</th><th>次关键词</th><th>字数</th><th>状态</th><th>WP</th><th>花费</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for k in keywords %}
+        <tr>
+          <td class="muted">{{ k.id }}</td>
+          <td>{{ k.main_keyword }}
+            {% if k.error %}<br><span class="muted" style="font-size:11px">{{ k.error }}</span>{% endif %}
+          </td>
+          <td class="muted">{{ k.secondary_keyword }}</td>
+          <td class="muted">{{ k.word_count or k.wordcounts }}</td>
+          <td><span class="pill {{ k.status }}">{{ k.status }}</span></td>
+          <td>{% if k.wp_link %}<a href="{{ k.wp_link }}" target="_blank">查看</a>{% else %}<span class="muted">-</span>{% endif %}</td>
+          <td class="muted">{% if k.cost_usd %}${{ '%.4f'|format(k.cost_usd) }}{% else %}-{% endif %}</td>
+          <td>
+            <div class="row" style="gap:6px">
+              <form method="post" action="/sites/{{ site.id }}/keywords/{{ k.id }}/reset">
+                <button class="btn secondary small" title="重置为待处理">↺</button>
+              </form>
+              <form method="post" action="/sites/{{ site.id }}/keywords/{{ k.id }}/delete">
+                <button class="btn secondary small" title="删除">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="row" style="margin-top:12px;gap:8px">
+      {% if kw_page > 1 %}<a class="btn secondary small" href="?mode=scheduled&kw_status={{ kw_status }}&kw_page={{ kw_page - 1 }}">← 上一页</a>{% endif %}
+      {% if kw_page < kw_pages %}<a class="btn secondary small" href="?mode=scheduled&kw_status={{ kw_status }}&kw_page={{ kw_page + 1 }}">下一页 →</a>{% endif %}
+      <span class="muted" style="font-size:12px">第 {{ kw_page }} / {{ kw_pages }} 页,每页 {{ kw_page_size }} 条</span>
+    </div>
+    {% else %}
+    <p class="muted">该筛选下没有任务。</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ---------- 插入任务模式 ---------- -->
+<div class="mode-panel" id="panel-insert">
+  <div class="card">
+    <div class="row">
+      <div><h2 style="margin:0">Excel 批量插入</h2>
+        <p class="sub" style="margin:2px 0 0">一次插一批,可选「插入后立即生成」(这批优先跑,不排队等)。</p></div>
+      <span class="spacer"></span>
+      <a href="/template.xlsx" class="btn secondary small">下载模板</a>
+    </div>
+    <form method="post" action="/sites/{{ site.id }}/insert_excel" enctype="multipart/form-data" class="row" style="margin-top:10px;gap:10px">
+      <input type="file" name="file" accept=".xlsx,.xls" required style="font-size:12px">
+      <button type="submit" class="btn ok" name="run_now" value="1">插入并立即生成</button>
+      <button type="submit" class="btn secondary">仅插入到队列</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>插入单条任务</h2>
+    <p class="sub">临时来一篇。可只插入排队,也可插入后立即生成。</p>
+    <form method="post" action="/sites/{{ site.id }}/insert">
+      <div class="grid">
+        <div class="field full">
+          <label>主关键词(必填)</label>
+          <input type="text" name="main_keyword" placeholder="例如: exness minimum deposit" required>
+        </div>
+        <div class="field"><label>次关键词(留空则同主关键词)</label><input type="text" name="secondary_keyword"></div>
+        <div class="field"><label>主题(留空则同主关键词)</label><input type="text" name="topic"></div>
+        <div class="field"><label>目标字数(留空用站点默认)</label><input type="number" name="wordcounts" placeholder="{{ site.word_count_min }}"></div>
+        <div class="field"><label>标签(逗号分隔,可选)</label><input type="text" name="tags"></div>
+        <div class="field full">
+          <label>特殊要求(可选,叠加在站点统一 CTA 之上)</label>
+          <textarea name="specific" placeholder="例如: 面向新手,自然植入开户 CTA"></textarea>
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button type="submit" class="btn ok" name="run_now" value="1">插入并立即生成</button>
+        <button type="submit" class="btn secondary">仅插入到队列</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ---------- Prompt 模式 ---------- -->
+<div class="mode-panel" id="panel-prompt">
+  <div class="card">
+    <h2>Prompt 模板</h2>
+    <p class="sub">调整各环节 prompt。留空 = 用内置默认。「回归原始」一键还原;「另存为存档」把当前内容存进预设库,可跨站复用。</p>
+    <form method="post" action="/sites/{{ site.id }}/prompts">
+      {% for pt in ['outline','article','seo','image'] %}
+      <div style="margin-bottom:22px">
+        <div class="row" style="margin-bottom:6px">
+          <span class="section-label">{{ prompt_labels[pt] }}</span>
+          <span class="spacer"></span>
+          <select id="preset-{{ pt }}" class="btn secondary small" style="padding:4px 8px">
+            <option value="">— 载入存档 —</option>
+            {% for p in presets if p.ptype == pt %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn secondary small" onclick="loadPreset('{{ pt }}')">载入</button>
+          <button type="button" class="btn secondary small" onclick="deletePreset('{{ pt }}')">删除存档</button>
+          <button type="button" class="btn secondary small" onclick="savePreset('{{ pt }}')">另存为存档</button>
+          <button type="button" class="btn secondary small" onclick="revertPrompt('{{ pt }}')">回归原始</button>
+        </div>
+        <textarea name="prompt_{{ pt }}" id="ta-{{ pt }}" style="min-height:150px;font-family:'Consolas',monospace;font-size:12.5px">{{ site['prompt_' ~ pt] or prompt_defaults[pt] }}</textarea>
+        <div class="muted" style="font-size:11px;margin-top:4px">可用占位符:
+          {% for t in prompt_tokens[pt] %}<code style="background:var(--surface2);padding:1px 5px;border-radius:4px;margin-right:3px">{{ '{' ~ t ~ '}' }}</code>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+      <div class="row"><button type="submit" class="btn ok">保存全部 Prompt</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- ---------- 站点配置模式 ---------- -->
+<div class="mode-panel" id="panel-config">
+  <div class="card">
+    <h2>站点配置</h2>
+    <p class="sub">这些是原来写死在 config.py 里的项,现在每个站独立可改。</p>
+    <form method="post" action="/sites/{{ site.id }}">
+      <div class="grid">
+        {% set v = site %}
+        {% include "_config_form.html" %}
+      </div>
+      <div class="row" style="margin-top:18px"><button type="submit" class="btn ok">保存配置</button></div>
+    </form>
+  </div>
+</div>
+
+<script>
+const SID = {{ site.id }};
+const DEFAULTS = {{ prompt_defaults|tojson }};
+const PRESETS = {};
+{% for p in presets %}PRESETS[{{ p.id }}] = {{ p.content|tojson }};{% endfor %}
+let polling = null;
+
+// ---- 模式切换 ----
+function switchMode(mode) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.querySelectorAll('.mode-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + mode));
+  try { history.replaceState(null, '', `?mode=${mode}`); } catch(e) {}
+}
+switchMode(new URLSearchParams(location.search).get('mode') || 'scheduled');
+
+// ---- Prompt ----
+function revertPrompt(pt) { document.getElementById('ta-'+pt).value = DEFAULTS[pt]; }
+function loadPreset(pt) {
+  const id = document.getElementById('preset-'+pt).value;
+  if (!id) return;
+  document.getElementById('ta-'+pt).value = PRESETS[id];
+}
+async function savePreset(pt) {
+  const name = prompt('存档名称:');
+  if (!name) return;
+  const fd = new FormData();
+  fd.append('name', name); fd.append('ptype', pt);
+  fd.append('content', document.getElementById('ta-'+pt).value);
+  const r = await fetch('/presets', { method: 'POST', body: fd });
+  if (r.ok) { alert('已存档'); location.href = '?mode=prompt'; }
+}
+async function deletePreset(pt) {
+  const id = document.getElementById('preset-'+pt).value;
+  if (!id) { alert('先在下拉里选一个存档'); return; }
+  if (!confirm('删除这个存档?')) return;
+  await fetch('/presets/'+id+'/delete', { method: 'POST' });
+  location.href = '?mode=prompt';
+}
+
+// ---- 运行控制 ----
+async function runNow() {
+  const fd = new FormData(); fd.append('limit', document.getElementById('limit').value);
+  const j = await (await fetch(`/sites/${SID}/run`, { method: 'POST', body: fd })).json();
+  if (!j.ok) { alert(j.msg || '无法启动'); return; }
+  startPolling();
+}
+async function stopNow() {
+  const b = document.getElementById('btn-stop');
+  b.disabled = true; b.textContent = '停止中…';
+  await fetch(`/sites/${SID}/stop`, { method: 'POST' });
+}
+async function viewRun(rid) {
+  const d = await (await fetch(`/sites/${SID}/runs/${rid}`)).json();
+  const box = document.getElementById('logbox');
+  box.textContent = d.log; box.scrollTop = 0;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function startPolling() { if (polling) clearInterval(polling); poll(); polling = setInterval(poll, 2000); }
+async function poll() {
+  let d;
+  try { d = await (await fetch(`/sites/${SID}/progress`)).json(); } catch(e) { return; }
+  if (d.counts) {
+    document.getElementById('c-pending').textContent = d.counts.pending;
+    document.getElementById('c-done').textContent = d.counts.done;
+    document.getElementById('c-error').textContent = d.counts.error;
+  }
+  const job = d.job, runBtn = document.getElementById('btn-run'), stopBtn = document.getElementById('btn-stop');
+  if (job) {
+    const box = document.getElementById('logbox');
+    box.textContent = job.logs.join('\n'); box.scrollTop = box.scrollHeight;
+    document.getElementById('jobline').textContent =
+      `进度 ${job.done}/${job.total} · 成功 ${job.ok} · 失败 ${job.failed} · 花费 $${job.cost}` +
+      (job.current ? ` · 当前: ${job.current}` : '');
+    if (job.running) { runBtn.style.display = 'none'; stopBtn.style.display = ''; }
+    else {
+      runBtn.style.display = ''; stopBtn.style.display = 'none';
+      if (polling) { clearInterval(polling); polling = null; }
+      setTimeout(() => location.reload(), 1200);
+    }
+  }
+}
+{% if running %}startPolling();{% endif %}
+{% if request.query_params.get('running') %}startPolling();{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+# Render 部署配置（Blueprint）
+# 在 Render 后台 New + → Blueprint，选中包含本文件的仓库即可。
+services:
+  - type: web
+    name: hawk-content-studio
+    runtime: python
+    plan: starter          # $7/月，常驻不休眠
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn webapp.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATA_DIR
+        value: /var/data   # 数据库 + 生成的文档/图片都存这里
+      # 压低多线程 Python 在容器里的内存占用（512MB 套餐关键，防 OOM）
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      # 只需这两个密钥（所有站点共用）；WordPress 应用密码在网页站点配置里填。
+      - key: TAVILY_API_KEY
+        sync: false        # 部署时在 Render 面板里填
+      - key: OPENROUTER_API_KEY
+        sync: false        # 部署时在 Render 面板里填
+    disk:
+      name: data           # 持久化磁盘，重新部署也不丢数据
+      mountPath: /var/data
+      sizeGB: 1

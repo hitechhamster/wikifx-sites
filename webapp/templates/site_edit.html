@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="font-size:22px">新建站点</h1>
+<form method="post" action="/sites">
+  <div class="card">
+    <div class="grid">
+      {% set v = defaults %}
+      {% include "_config_form.html" %}
+    </div>
+  </div>
+  <div class="row">
+    <button type="submit" class="btn ok">创建站点</button>
+    <a href="/" class="btn secondary">取消</a>
+  </div>
+</form>
+{% endblock %}

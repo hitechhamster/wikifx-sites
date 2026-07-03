@@ -1,0 +1,114 @@
+{# 站点配置表单字段。调用前需在上下文提供:
+   v  -> 取值函数结果的字典(编辑时=site,新建时=defaults)
+   用法: {% set v = site if site else defaults %} {% include "_config_form.html" %} #}
+
+<div class="field full">
+  <label>站点名称(仅内部显示,用于区分不同站群)</label>
+  <input type="text" name="name" value="{{ v.name if v.name is defined else '' }}" placeholder="例如: 越南语站3" required>
+</div>
+
+<div class="field full"><label style="color:var(--accent);font-weight:600">WordPress 连接</label></div>
+<div class="field">
+  <label>WP 站点地址(末尾不带 /)</label>
+  <input type="text" name="wp_url" value="{{ v.wp_url }}" placeholder="https://example.com">
+</div>
+<div class="field">
+  <label>WP 用户名</label>
+  <input type="text" name="wp_username" value="{{ v.wp_username }}" placeholder="admin">
+</div>
+<div class="field full">
+  <label>WP 应用密码 Application Password(在这里填,不是登录密码)</label>
+  <input type="text" name="wp_app_password" value="{{ v.wp_app_password }}" placeholder="xxxx xxxx xxxx xxxx">
+</div>
+
+<div class="field full"><label style="color:var(--accent);font-weight:600">API Keys(留空则用服务器环境变量)</label></div>
+<div class="field">
+  <label>Tavily API Key(留空用环境变量 TAVILY_API_KEY)</label>
+  <input type="text" name="tavily_api_key" value="{{ v.tavily_api_key }}" placeholder="留空则用服务器环境变量">
+</div>
+<div class="field">
+  <label>OpenRouter API Key(留空用环境变量 OPENROUTER_API_KEY)</label>
+  <input type="text" name="openrouter_api_key" value="{{ v.openrouter_api_key }}" placeholder="留空则用服务器环境变量">
+</div>
+
+<div class="field full"><label style="color:var(--accent);font-weight:600">语言 & 模型</label></div>
+<div class="field">
+  <label>文章语言</label>
+  <input type="text" name="language" value="{{ v.language }}" placeholder="Vietnamese">
+</div>
+<div class="field">
+  <label>大纲 + 正文模型</label>
+  <input type="text" name="model_outline" value="{{ v.model_outline }}">
+</div>
+<div class="field">
+  <label>SEO 元数据模型</label>
+  <input type="text" name="model_seo" value="{{ v.model_seo }}">
+</div>
+<div class="field">
+  <label>图片 prompt 模型</label>
+  <input type="text" name="model_image_prompt" value="{{ v.model_image_prompt }}">
+</div>
+<div class="field">
+  <label>图片生成模型(Nano Banana)</label>
+  <input type="text" name="model_image_gen" value="{{ v.model_image_gen }}">
+</div>
+
+<div class="field full"><label style="color:var(--accent);font-weight:600">字数</label></div>
+<div class="field">
+  <label>目标字数下限</label>
+  <input type="number" name="word_count_min" value="{{ v.word_count_min }}">
+</div>
+<div class="field">
+  <label>目标字数上限</label>
+  <input type="number" name="word_count_max" value="{{ v.word_count_max }}">
+</div>
+<div class="field">
+  <label>正文最低字数(不达标会重试)</label>
+  <input type="number" name="min_words" value="{{ v.min_words }}">
+</div>
+<div class="field">
+  <label>字数不足时重试次数</label>
+  <input type="number" name="max_word_retries" value="{{ v.max_word_retries }}">
+</div>
+
+<div class="field full"><label style="color:var(--accent);font-weight:600">发布策略</label></div>
+<div class="field">
+  <label>发布状态</label>
+  <select name="publish_status">
+    <option value="publish" {% if v.publish_status == "publish" %}selected{% endif %}>直接发布 publish</option>
+    <option value="draft" {% if v.publish_status == "draft" %}selected{% endif %}>存草稿 draft</option>
+  </select>
+</div>
+<div class="field">
+  <label>每次运行处理条数</label>
+  <input type="number" name="daily_limit" value="{{ v.daily_limit }}">
+</div>
+<div class="field">
+  <label>每 N 条暂停 15 秒(防限流)</label>
+  <input type="number" name="pause_every_n_rows" value="{{ v.pause_every_n_rows }}">
+</div>
+
+<div class="field full"><label style="color:var(--accent);font-weight:600">分类 / 标签 / 图片</label></div>
+<div class="field">
+  <label>固定分类(逗号分隔;填了就忽略每行 category)</label>
+  <input type="text" name="fixed_categories" value="{{ v.fixed_categories }}" placeholder="Giáo dục">
+</div>
+<div class="field">
+  <label>默认标签(逗号分隔,追加到每篇)</label>
+  <input type="text" name="default_tags" value="{{ v.default_tags }}">
+</div>
+<div class="field">
+  <label style="display:flex;align-items:center;gap:8px;margin-top:8px">
+    <input type="checkbox" name="image_enabled" value="1" style="width:auto" {% if v.image_enabled %}checked{% endif %}>
+    启用配图生成
+  </label>
+</div>
+<div class="field">
+  <label>图片失败重试次数</label>
+  <input type="number" name="image_retry" value="{{ v.image_retry }}">
+</div>
+
+<div class="field full">
+  <label>统一特殊要求 / 品牌 CTA(会追加到每篇文章的要求里,例如"面向新手,自然植入 XX 券商开户 CTA")</label>
+  <textarea name="brand_cta" placeholder="留空则不追加">{{ v.brand_cta }}</textarea>
+</div>
